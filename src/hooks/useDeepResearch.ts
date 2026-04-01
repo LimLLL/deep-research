@@ -353,7 +353,7 @@ function useDeepResearch() {
     const plimit = Plimit(parallelSearch);
     const thinkTagStreamProcessor = new ThinkTagStreamProcessor();
     await Promise.all(
-      queries.map((item) => {
+      queries.map((item) =>
         plimit(async () => {
           let content = "";
           let reasoning = "";
@@ -404,6 +404,23 @@ function useDeepResearch() {
                     err instanceof Error ? err.message : "Search Failed"
                   }`
                 );
+                taskStore.updateTask(item.query, {
+                  state: "failed",
+                  learning: "",
+                  sources: [],
+                  images: [],
+                });
+                const pendingTasks = useTaskStore
+                  .getState()
+                  .tasks.filter((t) => t.state === "unprocessed");
+                for (const t of pendingTasks) {
+                  taskStore.updateTask(t.query, {
+                    state: "failed",
+                    learning: "",
+                    sources: [],
+                    images: [],
+                  });
+                }
                 return plimit.clearQueue();
               }
               const enableReferences =
@@ -536,8 +553,8 @@ function useDeepResearch() {
             });
             return "";
           }
-        });
-      })
+        })
+      )
     );
   }
 
