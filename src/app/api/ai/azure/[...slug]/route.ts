@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { proxyFetch } from "@/app/api/utils";
 
 export const runtime = "edge";
 export const preferredRegion = [
@@ -41,16 +42,20 @@ async function handler(req: NextRequest) {
       },
     };
     if (body) payload.body = JSON.stringify(body);
-    const response = await fetch(url, payload);
+    const response = await proxyFetch(url, payload);
     return new NextResponse(response.body, response);
   } catch (error) {
-    if (error instanceof Error) {
-      console.error(error);
-      return NextResponse.json(
-        { code: 500, message: error.message },
-        { status: 500 }
-      );
-    }
+    console.error(error);
+    const message =
+      error instanceof Error
+        ? error.message
+        : typeof error === "string"
+          ? error
+          : "Unknown proxy error";
+    return NextResponse.json(
+      { code: 500, message },
+      { status: 500 }
+    );
   }
 }
 

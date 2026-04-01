@@ -124,10 +124,147 @@ export interface SearchProviderOptions {
   provider: string;
   baseURL?: string;
   apiKey?: string;
+  /** Auth method for Exa: 'x-api-key' (default) or 'bearer'. */
+  authType?: "x-api-key" | "bearer";
   query: string;
   maxResult?: number;
   scope?: string;
   promptOverrides?: DeepResearchPromptOverrides;
+}
+
+export interface FetchExaContentsOptions {
+  baseURL: string;
+  apiKey?: string;
+  /** Auth method: 'x-api-key' (default) or 'bearer'. */
+  authType?: "x-api-key" | "bearer";
+  urls: string[];
+  query?: string;
+  maxCharacters?: number;
+}
+
+export interface ExaContentResult {
+  url: string;
+  title: string;
+  text: string;
+  highlights: string[];
+}
+
+/** Whether an error is a retryable network failure. */
+function isRetryableError(error: unknown): boolean {
+  if (error instanceof TypeError) return true; // fetch network errors
+  if (error instanceof DOMException && error.name === "AbortError") return false;
+  if (error instanceof Error) {
+    const msg = error.message.toLowerCase();
+    return (
+      msg.includes("etimedout") ||
+      msg.includes("econnreset") ||
+      msg.includes("econnrefused") ||
+      msg.includes("socket hang up") ||
+      msg.includes("network") ||
+      msg.includes("fetch failed")
+    );
+  }
+  return false;
+}
+
+/** Whether an HTTP status warrants a retry. */
+function isRetryableStatus(status: number): boolean {
+  return status === 429 || status === 502 || status === 503 || status === 504;
+}
+
+const MAX_RETRIES = 2;
+const RETRY_DELAY_MS = 1500;
+
+/**
+ * Fetch full page contents from Exa's /contents endpoint (with retry).
+ * @param options - Connection and content retrieval options.
+ * @returns Array of page content results.
+ */
+export async function fetchExaContents({
+  baseURL,
+  apiKey = "",
+  authType = "x-api-key",
+  urls,
+  query,
+  maxCharacters = 10000,
+}: FetchExaContentsOptions): Promise<ExaContentResult[]> {
+  const reqHeaders: HeadersInit = {
+    "Content-Type": "application/json",
+  };
+  if (apiKey) {
+    if (authType === "x-api-key") {
+      reqHeaders["x-api-key"] = apiKey;
+    } else {
+      reqHeaders["Authorization"] = `Bearer ${apiKey}`;
+    }
+  }
+
+  const url = `${completePath(baseURL || EXA_BASE_URL)}/contents`;
+  const body = JSON.stringify({
+    urls,
+    text: { maxCharacters },
+    ...(query ? { highlights: { query, maxCharacters: 2000 } } : {}),
+  });
+
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    if (attempt > 0) {
+      console.warn(
+        `[Exa /contents] retry ${attempt}/${MAX_RETRIES} after ${RETRY_DELAY_MS}ms`
+      );
+      await new Promise((r) => setTimeout(r, RETRY_DELAY_MS * attempt));
+    }
+
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        headers: reqHeaders,
+        credentials: "omit",
+        body,
+      });
+    } catch (err) {
+      lastError = err;
+      if (isRetryableError(err) && attempt < MAX_RETRIES) continue;
+      throw new Error(
+        `Exa /contents network error: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => "Unknown error");
+      lastError = new Error(
+        `Exa /contents failed (${response.status}): ${errorText.slice(0, 200)}`
+      );
+      if (isRetryableStatus(response.status) && attempt < MAX_RETRIES) continue;
+      throw lastError;
+    }
+
+    let data;
+    try {
+      data = await response.json();
+    } catch {
+      throw new Error("Exa /contents returned invalid JSON");
+    }
+
+    const { results = [] } = data;
+    return results.map(
+      (result: {
+        url?: string;
+        title?: string;
+        text?: string;
+        highlights?: string[];
+      }) => ({
+        url: result.url || "",
+        title: result.title || "",
+        text: result.text || "",
+        highlights: result.highlights || [],
+      })
+    );
+  }
+
+  throw lastError ?? new Error("Exa /contents failed after retries");
 }
 
 type BraveSearchResult = {
@@ -179,6 +316,7 @@ export async function createSearchProvider({
   provider,
   baseURL,
   apiKey = "",
+  authType = "bearer",
   query,
   maxResult = 5,
   scope,
@@ -253,11 +391,21 @@ export async function createSearchProvider({
       images: [],
     };
   } else if (provider === "exa") {
+    const exaHeaders: HeadersInit = {
+      "Content-Type": "application/json",
+    };
+    if (apiKey) {
+      if (authType === "x-api-key") {
+        exaHeaders["x-api-key"] = apiKey;
+      } else {
+        exaHeaders["Authorization"] = `Bearer ${apiKey}`;
+      }
+    }
     const response = await fetch(
       `${completePath(baseURL || EXA_BASE_URL)}/search`,
       {
         method: "POST",
-        headers,
+        headers: exaHeaders,
         credentials: "omit",
         body: JSON.stringify({
           query,

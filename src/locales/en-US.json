@@ -98,7 +98,8 @@
       "exportEmpty": "No filtered tasks to export.",
       "exportSuccess": "Filtered tasks exported.",
       "showingTasks": "Showing {{shown}} of {{total}} tasks",
-      "noFilteredTasks": "No tasks match the current filters."
+      "noFilteredTasks": "No tasks match the current filters.",
+      "contentsCountTip": "Fetched {{count}} full page(s) via deep reading"
     },
     "finalReport": {
       "title": "4. Final Report",

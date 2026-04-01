@@ -16,6 +16,7 @@ import {
   NotebookText,
   ChevronsDown,
   ChevronsUp,
+  FileText,
 } from "lucide-react";
 import { Button } from "@/components/Internal/Button";
 import {
@@ -480,9 +481,21 @@ function SearchResult() {
                 return (
                   <AccordionItem key={item.taskId} value={item.taskId}>
                     <AccordionTrigger>
-                      <div className="flex">
+                      <div className="flex items-center">
                         <TaskState state={item.state} />
                         <span className="ml-1">{item.query}</span>
+                        {item.contentsCount && item.contentsCount > 0 ? (
+                          <span
+                            className="ml-2 inline-flex items-center gap-0.5 text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded-sm"
+                            title={t(
+                              "research.searchResult.contentsCountTip",
+                              { count: item.contentsCount }
+                            )}
+                          >
+                            <FileText className="h-3 w-3" />
+                            {item.contentsCount}
+                          </span>
+                        ) : null}
                       </div>
                     </AccordionTrigger>
                     <AccordionContent className="prose prose-slate dark:prose-invert max-w-full min-h-20">

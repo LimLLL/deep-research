@@ -1,7 +1,9 @@
 import { useSettingStore } from "@/store/setting";
 import {
   createSearchProvider,
+  fetchExaContents,
   type SearchProviderOptions,
+  type ExaContentResult,
 } from "@/utils/deep-research/search";
 import { multiApiKeyPolling } from "@/utils/model";
 import { generateSignature } from "@/utils/signature";
@@ -111,8 +113,10 @@ function useWebSearch() {
         if (mode === "local") {
           options.baseURL = exaApiProxy;
           options.apiKey = multiApiKeyPolling(exaApiKey);
+          options.authType = "x-api-key";
         } else {
           options.baseURL = location.origin + "/api/search/exa";
+          options.authType = "bearer";
         }
         options.scope = exaScope;
         break;
@@ -155,7 +159,49 @@ function useWebSearch() {
     return applyDomainFilters(result, includeDomains, excludeDomains);
   }
 
-  return { search };
+  /**
+   * Fetch full page contents via Exa /contents endpoint.
+   * @returns null if current provider is not Exa.
+   */
+  async function fetchContents(
+    urls: string[],
+    query?: string
+  ): Promise<ExaContentResult[] | null> {
+    const {
+      mode: currentMode,
+      searchProvider: currentProvider,
+      accessPassword: currentPassword,
+    } = useSettingStore.getState();
+
+    if (currentProvider !== "exa") return null;
+
+    const { exaApiKey: key, exaApiProxy: proxy } =
+      useSettingStore.getState();
+
+    let contentsBaseURL: string;
+    let contentsApiKey: string;
+    let contentsAuthType: "x-api-key" | "bearer";
+
+    if (currentMode === "local") {
+      contentsBaseURL = proxy || "";
+      contentsApiKey = multiApiKeyPolling(key);
+      contentsAuthType = "x-api-key";
+    } else {
+      contentsBaseURL = location.origin + "/api/search/exa";
+      contentsApiKey = generateSignature(currentPassword, Date.now());
+      contentsAuthType = "bearer";
+    }
+
+    return fetchExaContents({
+      baseURL: contentsBaseURL,
+      apiKey: contentsApiKey,
+      authType: contentsAuthType,
+      urls,
+      query,
+    });
+  }
+
+  return { search, fetchContents };
 }
 
 export default useWebSearch;

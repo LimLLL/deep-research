@@ -98,7 +98,8 @@
       "exportEmpty": "没有可导出的筛选任务。",
       "exportSuccess": "筛选任务已导出。",
       "showingTasks": "显示 {{shown}} / {{total}} 个任务",
-      "noFilteredTasks": "当前筛选条件下没有匹配任务。"
+      "noFilteredTasks": "当前筛选条件下没有匹配任务。",
+      "contentsCountTip": "通过深度阅读获取了 {{count}} 个完整页面"
     },
     "finalReport": {
       "title": "4. 最终报告",

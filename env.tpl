@@ -82,6 +82,9 @@ FIRECRAWL_API_BASE_URL=
 EXA_API_KEY=
 # (Optional) Server-side Exa API Proxy URL. Default, `https://api.exa.ai`
 EXA_API_BASE_URL=
+# (Optional) Exa API authentication method. Default, `x-api-key`
+# Possible values: x-api-key, bearer
+EXA_AUTH_TYPE=
 
 # (Optional) Server-side Bocha API Key (Required for server API calls)
 BOCHA_API_KEY=

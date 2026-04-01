@@ -43,6 +43,8 @@ interface SearchTask {
   learning: string;
   sources: Source[];
   images: ImageSource[];
+  /** Number of pages fetched via the readFullPage tool (Exa /contents). */
+  contentsCount?: number;
 }
 
 interface PartialJson {

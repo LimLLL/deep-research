@@ -12,6 +12,7 @@ import { type GoogleGenerativeAIProviderMetadata } from "@ai-sdk/google";
 import { useTranslation } from "react-i18next";
 import Plimit from "p-limit";
 import { toast } from "sonner";
+import { z } from "zod";
 import useModelProvider from "@/hooks/useAiProvider";
 import useWebSearch from "@/hooks/useWebSearch";
 import { useTaskStore } from "@/store/task";
@@ -65,7 +66,7 @@ function useDeepResearch() {
   const taskStore = useTaskStore();
   const { smoothTextStreamType } = useSettingStore();
   const { createModelProvider, getModel } = useModelProvider();
-  const { search } = useWebSearch();
+  const { search, fetchContents } = useWebSearch();
   const [status, setStatus] = useState<string>("");
 
   function getPromptOverrides() {
@@ -425,22 +426,74 @@ function useDeepResearch() {
               }
               const enableReferences =
                 sources.length > 0 && references === "enable";
-              searchResult = streamText({
+
+              // Build tools: let AI decide whether to fetch full page content
+              const canFetchContents = searchProvider === "exa";
+              const searchTools = canFetchContents
+                ? {
+                    readFullPage: {
+                      description:
+                        "Fetch the complete page content for specific URLs from search results. Use this when the search snippets are insufficient and you need the full article text for deeper, more thorough analysis.",
+                      parameters: z.object({
+                        urls: z
+                          .array(z.string())
+                          .describe(
+                            "The URLs to fetch full content for. Select only the most relevant URLs that need deeper reading."
+                          ),
+                      }),
+                      execute: async ({ urls }: { urls: string[] }) => {
+                        try {
+                          const contents = await fetchContents(
+                            urls,
+                            item.query
+                          );
+                          return contents ?? [];
+                        } catch (err) {
+                          console.error("readFullPage tool failed:", err);
+                          return {
+                            error:
+                              err instanceof Error
+                                ? err.message
+                                : "Failed to fetch page contents",
+                          };
+                        }
+                      },
+                    },
+                  }
+                : undefined;
+
+              const searchPrompt = [
+                processSearchResultPrompt(
+                  item.query,
+                  item.researchGoal,
+                  sources,
+                  enableReferences,
+                  promptOverrides
+                ),
+                ...(canFetchContents
+                  ? [
+                      "\n\nYou have a `readFullPage` tool available. If any search snippet seems highly relevant but lacks sufficient detail, use it to fetch the full page content before producing your analysis.",
+                    ]
+                  : []),
+                getResponseLanguagePrompt(),
+              ].join("\n\n");
+
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const streamOptions: Record<string, any> = {
                 model: await createModelProvider(networkingModel),
                 system: getSystemPrompt(promptOverrides),
-                prompt: [
-                  processSearchResultPrompt(
-                    item.query,
-                    item.researchGoal,
-                    sources,
-                    enableReferences,
-                    promptOverrides
-                  ),
-                  getResponseLanguagePrompt(),
-                ].join("\n\n"),
-                experimental_transform: smoothTextStream(smoothTextStreamType),
+                prompt: searchPrompt,
+                experimental_transform:
+                  smoothTextStream(smoothTextStreamType),
                 onError: handleError,
-              });
+              };
+              if (searchTools) {
+                streamOptions.tools = searchTools;
+                streamOptions.maxSteps = 3;
+              }
+              searchResult = streamText(
+                streamOptions as Parameters<typeof streamText>[0]
+              );
             } else {
               const searchSettings = await generateSearchSettings(
                 networkingModel
@@ -479,6 +532,8 @@ function useDeepResearch() {
               },
             });
           }
+          let contentsCount = 0;
+          try {
           for await (const part of searchResult.fullStream) {
             if (part.type === "text-delta") {
               thinkTagStreamProcessor.processChunk(
@@ -493,6 +548,12 @@ function useDeepResearch() {
               );
             } else if (part.type === "reasoning") {
               reasoning += part.textDelta;
+            } else if (part.type === "tool-call") {
+              if (part.toolName === "readFullPage") {
+                const args = part.args as { urls?: string[] };
+                contentsCount += args.urls?.length || 0;
+                taskStore.updateTask(item.query, { contentsCount });
+              }
             } else if (part.type === "source") {
               sources.push(part.source);
             } else if (part.type === "finish") {
@@ -542,6 +603,7 @@ function useDeepResearch() {
               learning: content,
               sources,
               images,
+              contentsCount,
             });
             return content;
           } else {
@@ -552,6 +614,17 @@ function useDeepResearch() {
               images: [],
             });
             return "";
+          }
+          } catch (streamErr) {
+            console.error(`Stream failed for "${item.query}":`, streamErr);
+            handleError(streamErr);
+            taskStore.updateTask(item.query, {
+              state: "failed",
+              learning: content || "",
+              sources,
+              images,
+            });
+            return content || "";
           }
         })
       )

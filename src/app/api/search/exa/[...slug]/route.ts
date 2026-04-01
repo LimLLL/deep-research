@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { EXA_BASE_URL } from "@/constants/urls";
+import { proxyFetch } from "@/app/api/utils";
 
 export const runtime = "edge";
 export const preferredRegion = [
@@ -25,23 +26,34 @@ export async function POST(req: NextRequest) {
   try {
     let url = `${API_PROXY_BASE_URL}/${decodeURIComponent(path.join("/"))}`;
     if (params) url += `?${params}`;
+    const forwardHeaders: HeadersInit = {
+      "Content-Type": req.headers.get("Content-Type") || "application/json",
+    };
+    // Forward whichever auth header the middleware set
+    const xApiKey = req.headers.get("x-api-key");
+    if (xApiKey) {
+      forwardHeaders["x-api-key"] = xApiKey;
+    } else {
+      forwardHeaders["Authorization"] = req.headers.get("Authorization") || "";
+    }
     const payload: RequestInit = {
       method: req.method,
-      headers: {
-        "Content-Type": req.headers.get("Content-Type") || "application/json",
-        Authorization: req.headers.get("Authorization") || "",
-      },
+      headers: forwardHeaders,
       body: JSON.stringify(body),
     };
-    const response = await fetch(url, payload);
+    const response = await proxyFetch(url, payload);
     return new NextResponse(response.body, response);
   } catch (error) {
-    if (error instanceof Error) {
-      console.error(error);
-      return NextResponse.json(
-        { code: 500, message: error.message },
-        { status: 500 }
-      );
-    }
+    console.error(error);
+    const message =
+      error instanceof Error
+        ? error.message
+        : typeof error === "string"
+          ? error
+          : "Unknown proxy error";
+    return NextResponse.json(
+      { code: 500, message },
+      { status: 500 }
+    );
   }
 }

@@ -147,3 +147,67 @@ export function getSearchProviderApiKey(provider: string) {
       throw new Error("Unsupported Provider: " + provider);
   }
 }
+
+const PROXY_MAX_RETRIES = 2;
+const PROXY_RETRY_DELAY_MS = 1000;
+
+function isRetryableNetworkError(error: unknown): boolean {
+  if (error instanceof TypeError) return true;
+  if (error instanceof Error) {
+    const msg = error.message.toLowerCase();
+    return (
+      msg.includes("etimedout") ||
+      msg.includes("econnreset") ||
+      msg.includes("econnrefused") ||
+      msg.includes("socket hang up") ||
+      msg.includes("fetch failed") ||
+      msg.includes("network") ||
+      msg.includes("aborted")
+    );
+  }
+  return false;
+}
+
+function isRetryableStatusCode(status: number): boolean {
+  return status === 429 || status === 502 || status === 503 || status === 504;
+}
+
+/**
+ * Fetch with automatic retry on network errors and retryable HTTP statuses.
+ * Drop-in replacement for `fetch()` in proxy route handlers.
+ */
+export async function proxyFetch(
+  url: string,
+  init?: RequestInit
+): Promise<Response> {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt <= PROXY_MAX_RETRIES; attempt++) {
+    if (attempt > 0) {
+      const delay = PROXY_RETRY_DELAY_MS * attempt;
+      console.warn(
+        `[proxyFetch] retry ${attempt}/${PROXY_MAX_RETRIES} → ${url} (wait ${delay}ms)`
+      );
+      await new Promise((r) => setTimeout(r, delay));
+    }
+
+    let response: Response;
+    try {
+      response = await fetch(url, init);
+    } catch (err) {
+      lastError = err;
+      console.error(`Failed to proxy ${url}`, err);
+      if (isRetryableNetworkError(err) && attempt < PROXY_MAX_RETRIES) continue;
+      throw err;
+    }
+
+    if (isRetryableStatusCode(response.status) && attempt < PROXY_MAX_RETRIES) {
+      lastError = new Error(`HTTP ${response.status}`);
+      continue;
+    }
+
+    return response;
+  }
+
+  throw lastError ?? new Error(`proxyFetch failed after retries: ${url}`);
+}

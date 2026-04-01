@@ -644,12 +644,17 @@ export async function middleware(request: NextRequest) {
     } else {
       const apiKey = multiApiKeyPolling(EXA_API_KEY);
       if (apiKey) {
+        const exaAuthType = process.env.EXA_AUTH_TYPE || "x-api-key";
         const requestHeaders = new Headers();
         requestHeaders.set(
           "Content-Type",
           request.headers.get("Content-Type") || "application/json"
         );
-        requestHeaders.set("Authorization", `Bearer ${apiKey}`);
+        if (exaAuthType === "x-api-key") {
+          requestHeaders.set("x-api-key", apiKey);
+        } else {
+          requestHeaders.set("Authorization", `Bearer ${apiKey}`);
+        }
         return NextResponse.next({
           request: {
             headers: requestHeaders,

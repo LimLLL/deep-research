@@ -25,12 +25,16 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ url, title, content: result });
   } catch (error) {
-    if (error instanceof Error) {
-      console.error(error);
-      return NextResponse.json(
-        { code: 500, message: error.message },
-        { status: 500 }
-      );
-    }
+    console.error(error);
+    const message =
+      error instanceof Error
+        ? error.message
+        : typeof error === "string"
+          ? error
+          : "Unknown proxy error";
+    return NextResponse.json(
+      { code: 500, message },
+      { status: 500 }
+    );
   }
 }
